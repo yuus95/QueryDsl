@@ -1,9 +1,6 @@
 package study.querydsl.entity;
 
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.*;
 
 import javax.persistence.*;
 import java.util.ArrayList;
@@ -13,6 +10,7 @@ import java.util.List;
 @Getter @Setter
 //기본생성자를 만들어준다
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@ToString(of ={"id","name"})
 public class Team {
 
     @Id @GeneratedValue

@@ -11,14 +11,14 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-
-@SpringBootTest
 @Transactional
+@SpringBootTest
 class MemberTest {
 
 
     @Autowired
     EntityManager em;
+
 
     @Test
     public void testEntity() throws Exception{
