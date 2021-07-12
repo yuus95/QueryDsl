@@ -3,6 +3,10 @@ package study.querydsl;
 
 import com.querydsl.core.QueryResults;
 import com.querydsl.core.Tuple;
+import com.querydsl.core.types.dsl.CaseBuilder;
+import com.querydsl.core.types.dsl.Expressions;
+import com.querydsl.core.types.dsl.NumberExpression;
+import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -132,7 +136,10 @@ public class QuerydslBasicTest {
 
         Member fetchOne = qf
                 .selectFrom(member)
+//                .where(member.age.eq(10))
+                .limit(1)
                 .fetchOne();
+
 
 
         Member fetchFirst = qf
@@ -146,8 +153,10 @@ public class QuerydslBasicTest {
                 .selectFrom(member)
                 .fetchResults();// 페이징 정보 보함 total count 쿼리 추가실행
 
-        results.getTotal();
+        long total = results.getTotal();
         List<Member> content = results.getResults();
+
+        System.out.println("content ==> " + content + "total == " + total);
 //        results.get
     }
 
@@ -257,22 +266,20 @@ public class QuerydslBasicTest {
 
         Assertions.assertThat(teamB.get(team.name)).isEqualTo("teamB");
         Assertions.assertThat(teamB.get(member.age.avg())).isEqualTo(40);
-
-
     }
 
 
     /**
-     * 팀 A에 소속된 모든 회원
+     * Left Outer Join  - > teamA에 속하지 않아도 멤버객체는 다 나온다
      */
-
+    // join(조인 대상, 별칭으로 사용할 Q타입)
     @Test
     public void join(){
 
         List<Member> result = qf
                 .select(member)
                 .from(member)
-                .leftJoin(member.team, team)
+                .leftJoin(member.team, team) //QMember, QTeam
                 .where(team.name.eq("teamA"))
                 .fetch();
 
@@ -345,7 +352,7 @@ public class QuerydslBasicTest {
         List<Tuple> result = qf
                 .select(member, team)
                 .from(member)
-                .leftJoin(team).on(member.username.eq(team.name)) // Team 객체와 외부조인 member.team 과 조인하느게 아님
+                .leftJoin(team).on(member.username.eq(team.name)) // Team 객체와 외부조인 member.team 과 조인하는게 아님
                 .fetch();
 
         for (Tuple tuple : result) {
@@ -361,7 +368,7 @@ public class QuerydslBasicTest {
      * 페치 조인
      */
 
-    @PersistenceUnit // 내일 단어 정리하기
+    @PersistenceUnit // EntityManagerFactory 가져올 때사용
     EntityManagerFactory emf;
 
 
@@ -376,7 +383,7 @@ public class QuerydslBasicTest {
                 .fetchOne();
 
         boolean loaded = emf.getPersistenceUnitUtil().isLoaded(findMember.getTeam());
-        Assertions.assertThat(loaded).as("페치 조인 미적용").isFalse();
+        Assertions.assertThat(loaded).as("페치 조인 미적용").isFalse(); // False이기떄문에 오류가 나지 않는다.
 
 
     }
@@ -396,10 +403,180 @@ public class QuerydslBasicTest {
                 .fetchOne();
 
         boolean loaded = emf.getPersistenceUnitUtil().isLoaded(findMember.getTeam());
-        Assertions.assertThat(loaded).as("페치 조인 미적용").isFalse();
+        Assertions.assertThat(loaded).as("페치 조인 적용").isFalse();  // 실패 True값이 나온다.
 
 
     }
+
+
+    /**
+     * 서브쿼리 사용 - 나이가 가장많은 사람 조회
+     */
+    @Test
+    public void use_subQuery(){
+        QMember sub_m = new QMember("sub_m");
+
+        List<Member> member = qf
+                .selectFrom(QMember.member)
+                .where(QMember.member.age.eq(
+                        JPAExpressions
+                                .select(sub_m.age.max())
+                                .from(sub_m)
+                ))
+                .fetch();
+
+        Assertions.assertThat(member.get(0).getAge()).isEqualTo(50);
+
+
+    }
+
+
+
+    /**
+     * 서브쿼리 사용 - 나이가 10살 이상인사람
+     */
+    @Test
+    public void use_subQuery_goe(){
+        QMember sub_m = new QMember("sub_m");
+
+        List<Member> member = qf
+                .selectFrom(QMember.member)
+                .where(QMember.member.age.in(
+                        JPAExpressions
+                                .select(sub_m.age)
+                                .from(sub_m)
+                                .where(sub_m.age.gt(10))
+                ))
+                .fetch();
+        Assertions.assertThat(member.size()).isEqualTo(3);
+
+    }
+
+
+    /**
+     * select -subQuery
+     */
+    @Test
+    public void Select_Suq_Query(){
+        QMember sub_m = new QMember("sub_m");
+
+
+        List<Tuple> Tuple = qf
+                .select(
+                        member.username,
+                        JPAExpressions
+                                .select(sub_m.age.avg())
+                                .from(sub_m))
+                .from(member)
+                .fetch();
+
+        for (com.querydsl.core.Tuple tuple : Tuple) {
+            System.out.println("Tuple ==> "+tuple);
+        }
+    }
+
+
+
+
+    /**
+     * case문 기본 문법
+     */
+    @Test
+    public void basicCase(){
+        List<String> members = qf
+                .select(member.age
+                        .when(10).then("열살")
+                        .when(20).then("스무살")
+                        .otherwise("기타"))
+                .from(member)
+                .fetch();
+        for (String s : members) {
+            System.out.println("member ==>  "+s);
+        }
+    }
+
+
+    /**
+     * 복잡한 case문  - caseBuilder() 사용하기
+     */
+    @Test
+    public void caseBuildUse(){
+
+        List<String> caseMember = qf
+                .select(
+                        new CaseBuilder()
+                                .when(member.age.between(0, 20)).then("0~20살")
+                                .when(member.age.between(21, 30)).then("21~30")
+                                .otherwise("기타"))
+                .from(member)
+                .fetch();
+
+        for (String s : caseMember) {
+            System.out.println("caseMember ==> " + s);
+        }
+    }
+
+    /**
+     * OrderBy에서 Case문 함계 사용하기
+     */
+    @Test
+    public void OrderByCase(){
+        NumberExpression<Integer> rankPath = new CaseBuilder()
+                .when(member.age.between(0, 20)).then(2)
+                .when(member.age.between(21, 30)).then(1)
+                .otherwise(3);
+        List<Tuple> result = qf
+                .select(member.username,
+                        member.age,
+                        rankPath)
+                .from(member)
+                .orderBy(rankPath.desc())
+                .fetch();
+
+        for (Tuple tuple : result) {
+            String username = tuple.get(member.username);
+            Integer age = tuple.get(member.age);
+            Integer rank = tuple.get(rankPath);
+            System.out.println("username = "  + username + " age = " + age + " rank = " + rank);
+        }
+    }
+
+
+    /**
+     * 상수 표시
+     */
+    @Test
+    public void constant(){
+
+        List<Tuple> members = qf
+                .select(QMember.member.username, Expressions.constant("A"))
+                .from(member)
+                .fetch();
+
+        for (Tuple tuple : members) {
+            System.out.println("tuple ==> " + tuple);
+        }
+    }
+
+
+    /**
+     * 문자더하기 {member.username}_{member.age}
+     */
+    @Test
+    public void str_plus(){
+
+        List<String> members = qf
+                .select(
+                        member.username.concat("_").concat(member.age.stringValue()))
+                .from(member)
+                .fetch();
+
+        for (String s : members) {
+            System.out.println("s ==> " + s );
+        }
+
+    }
+
 
 }
 
